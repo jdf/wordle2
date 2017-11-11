@@ -8,6 +8,7 @@
 #include <string.h>
 #include <math.h>
 
+#include <hb.h>
 #include <ft2build.h>
 #include FT_FREETYPE_H
 

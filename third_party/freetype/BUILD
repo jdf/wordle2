@@ -1,13 +1,6 @@
-package(default_visibility = ["//visibility:public"])
-
 licenses(["notice"])  # BSD-style
 
 exports_files(["LICENSE"])
-
-HEADERS = glob([
-    "include/freetype/*.h",
-    "include/freetype/config/*.h",
-]) + ["include/ft2build.h"]
 
 COMPILED_SOURCES = [
     "src/autofit/autofit.c",
@@ -50,36 +43,74 @@ COMPILED_SOURCES = [
     "src/type1/type1.c",
 ]
 
+IMPL_SRCS = COMPILED_SOURCES + glob([
+    "src/**/*.h",
+    "include/freetype/internal/**/*.h",
+])
+
+HEADERS = glob([
+    "include/freetype/*.h",
+    "include/freetype/config/*.h",
+]) + ["include/ft2build.h"]
+
+IMPL_HEADERS = HEADERS + ["include/freetype/internal/internal.h"] + glob(
+    ["src/**/*.c"],
+    exclude = COMPILED_SOURCES,
+)
+
+IMPL_DEPS = ["//third_party/libpng"]
+
+COPTS = [
+    "-Wno-covered-switch-default",
+    "-DFT_CONFIG_OPTION_SYSTEM_ZLIB",
+    "-DFT_CONFIG_CONFIG_H=<ftconfig.h>",
+    "-DFT_CONFIG_OPTION_USE_PNG",
+    "-DFT2_BUILD_LIBRARY",
+    "-DFT_CONFIG_MODULES_H=<ftmodule.h>",
+    "-Ithird_party/freetype/include",
+    "-Ithird_party/freetype/include/freetype",
+    "-Ithird_party/freetype/include/freetype/config",
+    # below due to src/cff/cf2intrp.c 'cf2_interpT2CharString'
+    "$(STACK_FRAME_UNLIMITED)",
+]
+
+HARFBUZZ_COPTS = ["-DFT_CONFIG_OPTION_USE_HARFBUZZ"]
+
+# This target is just for harfbuzz to dep on; it doesn't dep on harfbuzz.
+cc_library(
+    name = "freetype_noharfbuzz",
+    hdrs = HEADERS,
+    copts = COPTS,
+    includes = ["include"],
+    visibility = ["//third_party/harfbuzz:__pkg__"],
+    deps = [":freetype_noharfbuzz_impl"],
+)
+
+cc_library(
+    name = "freetype_noharfbuzz_impl",
+    srcs = IMPL_SRCS,
+    hdrs = IMPL_HEADERS,
+    copts = COPTS,
+    visibility = ["//visibility:private"],
+    deps = IMPL_DEPS,
+)
+
+# This target is for application code to dep on; it has access to harfbuzz.
 cc_library(
     name = "freetype",
     hdrs = HEADERS,
+    copts = COPTS + HARFBUZZ_COPTS,
     includes = ["include"],
+    visibility = ["//visibility:public"],
     deps = [":freetype_impl"],
 )
 
 cc_library(
     name = "freetype_impl",
-    srcs = COMPILED_SOURCES + glob([
-        "src/**/*.h",
-        "include/freetype/internal/**/*.h",
-    ]),
-    hdrs = HEADERS + ["include/freetype/internal/internal.h"] + glob(
-        ["src/**/*.c"],
-        exclude = COMPILED_SOURCES,
-    ),
-    copts = [
-        "-Wno-covered-switch-default",
-        "-DFT_CONFIG_OPTION_SYSTEM_ZLIB",
-        "-DFT_CONFIG_CONFIG_H=<ftconfig.h>",
-        "-DFT_CONFIG_OPTION_USE_PNG",
-        "-DFT2_BUILD_LIBRARY",
-        "-DFT_CONFIG_MODULES_H=<ftmodule.h>",
-        "-Ithird_party/freetype/include",
-        "-Ithird_party/freetype/include/freetype",
-        "-Ithird_party/freetype/include/freetype/config",
-        # below due to src/cff/cf2intrp.c 'cf2_interpT2CharString'
-        "$(STACK_FRAME_UNLIMITED)",
-    ],
-    deps = ["//third_party/libpng"],
+    srcs = IMPL_SRCS,
+    hdrs = IMPL_HEADERS,
+    copts = COPTS + HARFBUZZ_COPTS,
+    visibility = ["//visibility:private"],
+    deps = IMPL_DEPS + ["//third_party/harfbuzz"],
     alwayslink = 1,
 )
