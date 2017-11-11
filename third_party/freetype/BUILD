@@ -70,8 +70,6 @@ COPTS = [
     "-Ithird_party/freetype/include",
     "-Ithird_party/freetype/include/freetype",
     "-Ithird_party/freetype/include/freetype/config",
-    # below due to src/cff/cf2intrp.c 'cf2_interpT2CharString'
-    "$(STACK_FRAME_UNLIMITED)",
 ]
 
 HARFBUZZ_COPTS = ["-DFT_CONFIG_OPTION_USE_HARFBUZZ"]
