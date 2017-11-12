@@ -1,150 +1,154 @@
-/* example1.c                                                      */
-/*                                                                 */
-/* This small program shows how to print a rotated string with the */
-/* FreeType 2 library.                                             */
+#include <iostream>
 
-
-#include <stdio.h>
-#include <string.h>
-#include <math.h>
-
-#include <hb.h>
 #include <ft2build.h>
 #include FT_FREETYPE_H
+#include FT_OUTLINE_H 
 
+#include <SDL.h>
+#include <SDL_main.h>
 
-#define WIDTH   640
-#define HEIGHT  480
+#include <string>
 
+#include <hb.h>
+#include <hb-ft.h>
 
-/* origin is the upper left corner */
-unsigned char image[HEIGHT][WIDTH];
+const std::wstring TEXT = L"ค่ำคืน มึดมิด กี่โมง ไม่รู้ 555 มึนซะแล้วสินะ";
+const unsigned int WIDTH = 900;
+const unsigned int HEIGHT = 720;
 
+SDL_Renderer* renderer;
+FT_Library library;
 
-/* Replace this function with something useful. */
+struct SpanAdditionData {
+  SDL_Point dest;
+  SDL_Color color;
+};
 
-void
-draw_bitmap( FT_Bitmap*  bitmap,
-             FT_Int      x,
-             FT_Int      y)
+void DrawSpansCallback(const int y,
+  const int count,
+  const FT_Span * const spans,
+  void * const user)
 {
-  FT_Int  i, j, p, q;
-  FT_Int  x_max = x + bitmap->width;
-  FT_Int  y_max = y + bitmap->rows;
-
-
-  for ( i = x, p = 0; i < x_max; i++, p++ )
+  SpanAdditionData* addl = static_cast<SpanAdditionData*>(user);
+  for (int i = 0; i < count; ++i)
   {
-    for ( j = y, q = 0; j < y_max; j++, q++ )
+    int x1 = spans[i].x + addl->dest.x;
+    int y1 = addl->dest.y - y;
+    int x2 = x1 + spans[i].len;
+    int y2 = y1;
+
+    SDL_SetRenderDrawColor(renderer, addl->color.r, addl->color.g, addl->color.b, spans[i].coverage);
+    SDL_RenderDrawLine(renderer, x1, y1, x2, y2);
+  }
+}
+
+void DrawText(  const std::wstring& text,
+        const SDL_Color& color,
+        const int& baseline,
+        const int& x_start,
+        const FT_Face& face,
+        hb_font_t* hb_font,
+        SDL_Renderer*& renderer) 
+{
+
+  hb_buffer_t *buffer = hb_buffer_create();
+
+  hb_buffer_set_direction(buffer, HB_DIRECTION_LTR);
+  hb_buffer_set_script(buffer, HB_SCRIPT_THAI);
+
+  hb_buffer_add_utf16(buffer, 
+    (unsigned short*)(text.c_str()),
+    text.length(),
+    0, 
+    text.length());
+
+  hb_shape(hb_font, buffer, NULL, 0);
+
+  const unsigned int glyph_count = hb_buffer_get_length(buffer);
+  const hb_glyph_info_t *glyph_infos = hb_buffer_get_glyph_infos(buffer, NULL);
+  const hb_glyph_position_t *glyph_positions = hb_buffer_get_glyph_positions(buffer, NULL);
+
+  SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+
+  int x = x_start;
+
+  SpanAdditionData addl;
+
+  addl.color = color;
+
+  for (unsigned int i = 0; i < glyph_count; i++)
+  {
+    FT_Load_Glyph(face, glyph_infos[i].codepoint, FT_LOAD_NO_BITMAP);
+
+    addl.dest.x = x + (glyph_positions[i].x_offset >> 6);
+    addl.dest.y = baseline - (glyph_positions[i].y_offset >> 6);
+
+    if (face->glyph->format == FT_GLYPH_FORMAT_OUTLINE)
     {
-      if ( i < 0      || j < 0       ||
-           i >= WIDTH || j >= HEIGHT )
-        continue;
+      FT_Raster_Params params;
+      memset(&params, 0, sizeof(params));
+      params.flags = FT_RASTER_FLAG_AA | FT_RASTER_FLAG_DIRECT;
+      params.gray_spans = DrawSpansCallback;
+      params.user = &addl;
 
-      image[j][i] |= bitmap->buffer[q * bitmap->width + p];
+      FT_Outline_Render(library, &face->glyph->outline, &params);
+    }//No fallback
+    x += (glyph_positions[i].x_advance >> 6);
+  }
+
+  hb_buffer_destroy(buffer);
+}
+
+int main(int argc, char **argv) 
+{
+  if (argc != 2) return -1; 
+
+  SDL_Init(SDL_INIT_EVERYTHING);
+  SDL_Window* window = SDL_CreateWindow("Test Window",
+    SDL_WINDOWPOS_UNDEFINED, 
+    SDL_WINDOWPOS_UNDEFINED, 
+    WIDTH, 
+    HEIGHT, 
+    0);
+
+  renderer = SDL_CreateRenderer(window, -1, 0);
+
+  FT_Init_FreeType(&library);
+
+  FT_Face face;
+  FT_New_Face(library, argv[1], 0, &face);
+  FT_Set_Pixel_Sizes(face, 0, 64);
+
+  hb_font_t* hb_font = hb_ft_font_create(face, 0);
+
+  SDL_Color color;
+  color.a = 0xff;
+  color.r = 0xff;
+  color.g = 0xa0;
+  color.b = 0x80;
+
+  while (true)
+  {
+    SDL_Event event;
+    if (SDL_PollEvent(&event))
+    {
+      if (event.type == SDL_QUIT) break;
     }
-  }
-}
 
+    SDL_SetRenderDrawColor(renderer, 0x50, 0x82, 0xaa, 0xff);
+    SDL_RenderClear(renderer);
 
-void
-show_image( void )
-{
-  int  i, j;
+    DrawText(TEXT, color , 300, 30, face, hb_font, renderer);
 
-
-  for ( i = 0; i < HEIGHT; i++ )
-  {
-    for ( j = 0; j < WIDTH; j++ )
-      putchar( image[i][j] == 0 ? ' '
-                                : image[i][j] < 128 ? '+'
-                                                    : '*' );
-    putchar( '\n' );
-  }
-}
-
-
-int
-main( int     argc,
-      char**  argv )
-{
-  FT_Library    library;
-  FT_Face       face;
-
-  FT_GlyphSlot  slot;
-  FT_Matrix     matrix;                 /* transformation matrix */
-  FT_Vector     pen;                    /* untransformed origin  */
-  FT_Error      error;
-
-  char*         filename;
-  char*         text;
-
-  double        angle;
-  int           target_height;
-  int           n, num_chars;
-
-
-  if ( argc != 3 )
-  {
-    fprintf ( stderr, "usage: %s font sample-text\n", argv[0] );
-    exit( 1 );
+    SDL_RenderPresent(renderer);
+    SDL_Delay(10);
   }
 
-  filename      = argv[1];                           /* first argument     */
-  text          = argv[2];                           /* second argument    */
-  num_chars     = strlen( text );
-  angle         = ( 25.0 / 360 ) * 3.14159 * 2;      /* use 25 degrees     */
-  target_height = HEIGHT;
+  hb_font_destroy(hb_font);
+  FT_Done_Face(face);
+  FT_Done_FreeType(library);
 
-  error = FT_Init_FreeType( &library );              /* initialize library */
-  /* error handling omitted */
-
-  error = FT_New_Face( library, filename, 0, &face );/* create face object */
-  /* error handling omitted */
-
-  /* use 50pt at 100dpi */
-  error = FT_Set_Char_Size( face, 50 * 64, 0,
-                            100, 0 );                /* set character size */
-  /* error handling omitted */
-
-  slot = face->glyph;
-
-  /* set up matrix */
-  matrix.xx = (FT_Fixed)( cos( angle ) * 0x10000L );
-  matrix.xy = (FT_Fixed)(-sin( angle ) * 0x10000L );
-  matrix.yx = (FT_Fixed)( sin( angle ) * 0x10000L );
-  matrix.yy = (FT_Fixed)( cos( angle ) * 0x10000L );
-
-  /* the pen position in 26.6 cartesian space coordinates; */
-  /* start at (300,200) relative to the upper left corner  */
-  pen.x = 300 * 64;
-  pen.y = ( target_height - 200 ) * 64;
-
-  for ( n = 0; n < num_chars; n++ )
-  {
-    /* set transformation */
-    FT_Set_Transform( face, &matrix, &pen );
-
-    /* load glyph image into the slot (erase previous one) */
-    error = FT_Load_Char( face, text[n], FT_LOAD_RENDER );
-    if ( error )
-      continue;                 /* ignore errors */
-
-    /* now, draw to our target surface (convert position) */
-    draw_bitmap( &slot->bitmap,
-                 slot->bitmap_left,
-                 target_height - slot->bitmap_top );
-
-    /* increment pen position */
-    pen.x += slot->advance.x;
-    pen.y += slot->advance.y;
-  }
-
-  show_image();
-
-  FT_Done_Face    ( face );
-  FT_Done_FreeType( library );
-
+  SDL_DestroyWindow(window);
+  SDL_Quit();
   return 0;
 }
-
